@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>OnTrack</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <h1>OnTrack</h1>
+    <p>Your goal is waiting. Let's get back to it.</p>
+
+    <input id="task" placeholder="What are you working on?">
+    <input id="minutes" type="number" placeholder="Set timer">
+    <select id="unit">
+      <option value="minutes">Minutes</option>
+      <option value="hours">Hours</option>
+    </select>
+    <button id="startBtn">Start</button>
+
+    <h2 id="timer"></h2>
+    <p id="status"></p>
+
+    <script>
+      const API_URL = "http://localhost:5001/api/message";
+
+      let focusing = false;
+      let ctx;
+      let lastBeep = 0;
+      let timeLeft = 0;
+      let countdown;
+      let currentTask = "your goal";
+      let aiMessage = "";
+
+      function beep(seconds) {
+        const osc = ctx.createOscillator();
+        osc.frequency.value = 800;
+        osc.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + seconds);
+      }
+
+      function getMessage() {
+        const m = Math.ceil(timeLeft / 60);
+        const list = [
+          "Your focus session is still running. " + m + " minutes left.",
+          "Quick reminder: your goal is waiting. Let's finish it.",
+          "Hey, you've got this! Just " + m + " more minutes.",
+          "Scrolling can wait. Your project can't.",
+          "Reels aren't going anywhere. Your deadline is."
+        ];
+        return list[Math.floor(Math.random() * list.length)];
+      }
+
+      async function loadAiMessage() {
+        try {
+          const res = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              task: currentTask,
+              minutesLeft: Math.ceil(timeLeft / 60)
+            })
+          });
+          const data = await res.json();
+          if (data.message) aiMessage = data.message;
+        } catch (error) {
+          aiMessage = "";
+        }
+      }
+
+      function alertUser() {
+        if (Date.now() - lastBeep < 2000) return;
+        lastBeep = Date.now();
+        beep(1);
+        const msg = aiMessage || getMessage();
+        aiMessage = "";
+        loadAiMessage();
+        document.getElementById("status").innerText = msg;
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("OnTrack", { body: msg });
+        }
+      }
+
+      function showTime() {
+        const h = Math.floor(timeLeft / 3600);
+        const m = Math.floor((timeLeft % 3600) / 60);
+        const s = timeLeft % 60;
+        let text = String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+        if (h > 0) {
+          text = h + ":" + text;
+        }
+        document.getElementById("timer").innerText = text;
+      }
+
+      document.getElementById("startBtn").onclick = function () {
+        const task = document.getElementById("task").value || "your goal";
+        const unit = document.getElementById("unit").value;
+        let minutes = Number(document.getElementById("minutes").value);
+        if (!minutes) {
+          minutes = 25;
+        } else if (unit === "hours") {
+          minutes = minutes * 60;
+        }
+
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if ("Notification" in window) Notification.requestPermission();
+
+        clearInterval(countdown);
+        currentTask = task;
+        timeLeft = minutes * 60;
+        focusing = true;
+        showTime();
+        aiMessage = "";
+        loadAiMessage();
+        document.getElementById("status").innerText = "Focusing on: " + task;
+
+        countdown = setInterval(function () {
+          timeLeft = timeLeft - 1;
+          showTime();
+          if (timeLeft <= 0) {
+            clearInterval(countdown);
+            focusing = false;
+            beep(2);
+            document.getElementById("status").innerText = "Time is up. Well done!";
+          }
+        }, 1000);
+      };
+
+      window.addEventListener("blur", function () {
+        if (focusing) alertUser();
+      });
+      document.addEventListener("visibilitychange", function () {
+        if (focusing && document.hidden) alertUser();
+      });
+    </script>
+  </body>
+</html>
